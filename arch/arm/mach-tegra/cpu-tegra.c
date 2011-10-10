@@ -761,12 +761,12 @@ late_initcall(tegra_cpu_debug_init);
 module_exit(tegra_cpu_debug_exit);
 #endif /* CONFIG_DEBUG_FS */
 
-int tegra_verify_speed(struct cpufreq_policy *policy)
+static int tegra_verify_speed(struct cpufreq_policy *policy)
 {
 	return cpufreq_frequency_table_verify(policy, freq_table);
 }
 
-unsigned int tegra_getspeed(unsigned int cpu)
+static unsigned int tegra_getspeed(unsigned int cpu)
 {
 	unsigned long rate;
 
