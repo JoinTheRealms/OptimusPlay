@@ -36,10 +36,6 @@
 
 #include <mach/iomap.h>
 #include <mach/smmu.h>
-#include <mach/tegra_smmu.h>
-
-/* REVISIT: With new configurations for t114/124/148 passed from DT */
-#define SKIP_SWGRP_CHECK
 
 /* bitmap of the page sizes currently supported */
 #define SMMU_IOMMU_PGSIZES	(SZ_4K)
@@ -319,22 +315,11 @@ static int __smmu_client_set_hwgrp(struct smmu_client *c,
 		offs = HWGRP_ASID_REG(i);
 		val = smmu_read(smmu, offs);
 		if (on) {
-#if !defined(SKIP_SWGRP_CHECK)
-			if (WARN_ON(val & mask)) {
-				for_each_set_bit(i, &map, HWGRP_COUNT) {
-					offs = HWGRP_ASID_REG(i);
-					val = smmu_read(smmu, offs);
-					val &= ~mask;
-					smmu_write(smmu, val, offs);
-				}
-				return -EBUSY;
-			}
-#endif
+			if (WARN_ON(val & mask))
+				goto err_hw_busy;
 			val |= mask;
 		} else {
-#if !defined(SKIP_SWGRP_CHECK)
 			WARN_ON((val & mask) == mask);
-#endif
 			val &= ~mask;
 		}
 		smmu_write(smmu, val, offs);
@@ -343,6 +328,14 @@ static int __smmu_client_set_hwgrp(struct smmu_client *c,
 	c->hwgrp = map;
 	return 0;
 
+err_hw_busy:
+	for_each_set_bit(i, &map, HWGRP_COUNT) {
+		offs = HWGRP_ASID_REG(i);
+		val = smmu_read(smmu, offs);
+		val &= ~mask;
+		smmu_write(smmu, val, offs);
+	}
+	return -EBUSY;
 }
 
 static int smmu_client_set_hwgrp(struct smmu_client *c, u32 map, int on)
@@ -707,15 +700,9 @@ static int smmu_iommu_attach_dev(struct iommu_domain *domain,
 		return -ENOMEM;
 	client->dev = dev;
 	client->as = as;
-
-#ifdef SKIP_SWGRP_CHECK
-	/* Enable all SWGRP blindly by default */
-	map = (1 << HWGRP_COUNT) - 1;
-#else
 	map = (unsigned long)dev->platform_data;
 	if (!map)
 		return -EINVAL;
-#endif
 
 	err = smmu_client_enable_hwgrp(client, map);
 	if (err)
@@ -746,7 +733,7 @@ static int smmu_iommu_attach_dev(struct iommu_domain *domain,
 		pr_info("Reserve \"page zero\" for AVP vectors using a common dummy\n");
 	}
 
-	dev_dbg(smmu->dev, "%s is attached\n", dev_name(dev));
+	dev_dbg(smmu->dev, "%s is attached\n", dev_name(c->dev));
 	return 0;
 
 err_client:
@@ -896,8 +883,7 @@ static int tegra_smmu_resume(struct device *dev)
 static int tegra_smmu_probe(struct platform_device *pdev)
 {
 	struct smmu_device *smmu;
-	struct resource *regs, *regs2;
-	struct tegra_smmu_window *window;
+	struct resource *regs, *regs2, *window;
 	struct device *dev = &pdev->dev;
 	int i, err = 0;
 
@@ -908,7 +894,7 @@ static int tegra_smmu_probe(struct platform_device *pdev)
 
 	regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	regs2 = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-	window = tegra_smmu_window(0);
+	window = platform_get_resource(pdev, IORESOURCE_MEM, 2);
 	if (!regs || !regs2 || !window) {
 		dev_err(dev, "No SMMU resources\n");
 		return -ENODEV;
@@ -923,7 +909,7 @@ static int tegra_smmu_probe(struct platform_device *pdev)
 	smmu->dev = dev;
 	smmu->num_as = SMMU_NUM_ASIDS;
 	smmu->iovmm_base = (unsigned long)window->start;
-	smmu->page_count = (window->end + 1 - window->start) >> SMMU_PAGE_SHIFT;
+	smmu->page_count = resource_size(window) >> SMMU_PAGE_SHIFT;
 	smmu->regs = devm_ioremap(dev, regs->start, resource_size(regs));
 	smmu->regs_ahbarb = devm_ioremap(dev, regs2->start,
 					 resource_size(regs2));
@@ -1024,7 +1010,7 @@ static struct platform_driver tegra_smmu_driver = {
 	.remove		= tegra_smmu_remove,
 	.driver = {
 		.owner	= THIS_MODULE,
-		.name	= "tegra_smmu",
+		.name	= "tegra-smmu",
 		.pm	= &tegra_smmu_pm_ops,
 	},
 };
@@ -1040,5 +1026,9 @@ static void __exit tegra_smmu_exit(void)
 	platform_driver_unregister(&tegra_smmu_driver);
 }
 
-core_initcall(tegra_smmu_init);
+subsys_initcall(tegra_smmu_init);
 module_exit(tegra_smmu_exit);
+
+MODULE_DESCRIPTION("IOMMU API for SMMU in Tegra30");
+MODULE_AUTHOR("Hiroshi DOYU <hdoyu@nvidia.com>");
+MODULE_LICENSE("GPL v2");
