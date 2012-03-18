@@ -3138,12 +3138,10 @@ static int tegra3_clk_shared_bus_update(struct clk *bus)
 
 	if (bw) {
 		if (bus->flags & PERIPH_EMC_ENB) {
-			bw = emc_bw_efficiency ?
-				(bw / emc_bw_efficiency) : bus->max_rate;
+			bw = tegra_emc_bw_efficiency ?
+				(bw / tegra_emc_bw_efficiency) : bus->max_rate;
 			bw = (bw < bus->max_rate / 100) ?
 				(bw * 100) : bus->max_rate;
-//                                   
-			bw = max(bw, tegra_emc_bw_min_rate);
 		}
 		bw = clk_round_rate_locked(bus, bw);
 	}

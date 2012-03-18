@@ -28,9 +28,6 @@
 #define TEGRA_EMC_BRIDGE_MVOLTS_MIN	1200
 
 extern u8 tegra_emc_bw_efficiency;
-extern u8 tegra_emc_bw_efficiency_boost;
-//                                   
-extern unsigned long tegra_emc_bw_min_rate;
 
 struct tegra_emc_table {
 	u8 rev;

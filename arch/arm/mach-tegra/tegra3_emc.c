@@ -47,13 +47,6 @@ static bool emc_enable;
 module_param(emc_enable, bool, 0644);
 
 u8 tegra_emc_bw_efficiency = 35;
-u8 tegra_emc_bw_efficiency_boost = 45;
-//                                   
-#if defined(CONFIG_MACH_LGE)
-unsigned long tegra_emc_bw_min_rate = 204000000;
-#else
-unsigned long tegra_emc_bw_min_rate;
-#endif
 
 #define EMC_MIN_RATE_DDR3		25500000
 #define EMC_STATUS_UPDATE_TIMEOUT	100
@@ -1433,39 +1426,6 @@ static int efficiency_set(void *data, u64 val)
 DEFINE_SIMPLE_ATTRIBUTE(efficiency_fops, efficiency_get,
 			efficiency_set, "%llu\n");
 
-static int efficiency_boost_get(void *data, u64 *val)
-{
-	*val = tegra_emc_bw_efficiency_boost;
-	return 0;
-}
-static int efficiency_boost_set(void *data, u64 val)
-{
-	tegra_emc_bw_efficiency_boost = (val > 100) ? 100 : val;
-	if (emc)
-		tegra_clk_shared_bus_update(emc);
-
-	return 0;
-}
-DEFINE_SIMPLE_ATTRIBUTE(efficiency_boost_fops, efficiency_boost_get,
-			efficiency_boost_set, "%llu\n");
-
-//                                   
-static int bw_min_rate_get(void *data, u64 *val)
-{
-	*val = tegra_emc_bw_min_rate;
-	return 0;
-}
-static int bw_min_rate_set(void *data, u64 val)
-{
-	tegra_emc_bw_min_rate = val;
-	if (emc)
-		tegra_clk_shared_bus_update(emc);
-
-	return 0;
-}
-DEFINE_SIMPLE_ATTRIBUTE(bw_min_rate_fops, bw_min_rate_get,
-			bw_min_rate_set, "%llu\n");
-
 static int __init tegra_emc_debug_init(void)
 {
 	if (!tegra_emc_table)
@@ -1493,15 +1453,6 @@ static int __init tegra_emc_debug_init(void)
 
 	if (!debugfs_create_file("efficiency", S_IRUGO | S_IWUSR,
 				 emc_debugfs_root, NULL, &efficiency_fops))
-		goto err_out;
-
-	if (!debugfs_create_file("efficiency_boost", S_IRUGO | S_IWUSR,
-				 emc_debugfs_root, NULL, &efficiency_boost_fops))
-		goto err_out;
-
-//                                   
-	if (!debugfs_create_file("bw_min_rate", S_IRUGO | S_IWUSR,
-				 emc_debugfs_root, NULL, &bw_min_rate_fops))
 		goto err_out;
 
 	return 0;
