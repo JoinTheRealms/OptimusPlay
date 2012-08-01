@@ -1404,11 +1404,10 @@ static void dw_mci_cmd_interrupt(struct dw_mci *host, u32 status)
 static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
 {
 	struct dw_mci *host = dev_id;
-	u32 status, pending;
+	u32 pending;
 	unsigned int pass_count = 0;
 
 	do {
-		status = mci_readl(host, RINTSTS);
 		pending = mci_readl(host, MINTSTS); /* read-only mask reg */
 
 		/*
@@ -1426,7 +1425,7 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
 
 		if (pending & DW_MCI_CMD_ERROR_FLAGS) {
 			mci_writel(host, RINTSTS, DW_MCI_CMD_ERROR_FLAGS);
-			host->cmd_status = status;
+			host->cmd_status = pending;
 			smp_wmb();
 			set_bit(EVENT_CMD_COMPLETE, &host->pending_events);
 		}
@@ -1434,7 +1433,7 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
 		if (pending & DW_MCI_DATA_ERROR_FLAGS) {
 			/* if there is an error report DATA_ERROR */
 			mci_writel(host, RINTSTS, DW_MCI_DATA_ERROR_FLAGS);
-			host->data_status = status;
+			host->data_status = pending;
 			smp_wmb();
 			set_bit(EVENT_DATA_ERROR, &host->pending_events);
 			if (!(pending & (SDMMC_INT_DTO | SDMMC_INT_DCRC |
@@ -1445,7 +1444,7 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
 		if (pending & SDMMC_INT_DATA_OVER) {
 			mci_writel(host, RINTSTS, SDMMC_INT_DATA_OVER);
 			if (!host->data_status)
-				host->data_status = status;
+				host->data_status = pending;
 			smp_wmb();
 			if (host->dir_status == DW_MCI_RECV_STATUS) {
 				if (host->sg != NULL)
@@ -1469,7 +1468,7 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
 
 		if (pending & SDMMC_INT_CMD_DONE) {
 			mci_writel(host, RINTSTS, SDMMC_INT_CMD_DONE);
-			dw_mci_cmd_interrupt(host, status);
+			dw_mci_cmd_interrupt(host, pending);
 		}
 
 		if (pending & SDMMC_INT_CD) {
