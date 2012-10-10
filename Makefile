@@ -367,10 +367,12 @@ KBUILD_CPPFLAGS := -D__KERNEL__
 
 KBUILD_CFLAGS   := -O3 -fmodulo-sched -fmodulo-sched-allow-regmoves -fno-tree-vectorize \
 		   -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
-		   -fno-strict-aliasing -fno-common \
-		   -Werror-implicit-function-declaration \
-		   -Wno-format-security \
+		   -fno-strict-aliasing -fno-common -funswitch-loops \
+		   -Werror-implicit-function-declaration -fpredictive-commoning \
+		   -Wno-format-security -mtune=cortex-a9 -fgcse-after-reload \
 		   -fno-delete-null-pointer-checks -mno-unaligned-access
+             
+
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
 KBUILD_AFLAGS   := -D__ASSEMBLY__
