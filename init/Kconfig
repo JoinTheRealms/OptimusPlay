@@ -920,6 +920,13 @@ config PANIC_TIMEOUT
 	default 0
 	help
 	  Set default panic timeout.
+	  Enable support for /proc/sys/kernel/unaligned-trap
+	  Allows arches to define/use @unaligned_enabled to runtime toggle
+	  the unaligned access emulation.
+	  see arch/parisc/kernel/unaligned.c for reference
+
+config HAVE_PCSPKR_PLATFORM
+	bool
 
 menuconfig EXPERT
 	bool "Configure standard kernel features (expert users)"
@@ -979,9 +986,6 @@ config KALLSYMS_ALL
 	   something like this).
 
 	   Say N unless you really need all symbols.
-
-config HOTPLUG
-	def_bool y
 
 config PRINTK
 	default y

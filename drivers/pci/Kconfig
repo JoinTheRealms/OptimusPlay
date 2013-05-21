@@ -43,7 +43,6 @@ config PCI_STUB
 config XEN_PCIDEV_FRONTEND
         tristate "Xen PCI Frontend"
         depends on PCI && X86 && XEN
-        select HOTPLUG
         select PCI_XEN
 	select XEN_XENBUS_FRONTEND
         default y
@@ -85,8 +84,7 @@ config PCI_IOAPIC
 	bool
 	depends on PCI
 	depends on ACPI
-	depends on HOTPLUG
-	default y
+	default !X86
 
 config PCI_LABEL
 	def_bool y if (DMI || ACPI)
