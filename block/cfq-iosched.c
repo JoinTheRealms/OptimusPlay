@@ -4009,7 +4009,7 @@ static void *cfq_init_queue(struct request_queue *q)
 	if (i < 0)
 		return NULL;
 
-	cfqd = kmalloc_node(sizeof(*cfqd), GFP_KERNEL | __GFP_ZERO, q->node);
+	cfqd = kzalloc_node(sizeof(*cfqd), GFP_KERNEL, q->node);
 	if (!cfqd) {
 		spin_lock(&cic_index_lock);
 		ida_remove(&cic_index_ida, i);
