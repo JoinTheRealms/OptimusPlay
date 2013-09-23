@@ -281,7 +281,7 @@ endif
 source "fs/nls/Kconfig"
 source "fs/dlm/Kconfig"
 
-# samsungs exfat driver
+# exFAT driver
 
 source "fs/exfat/Kconfig"
 
