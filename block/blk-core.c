@@ -369,34 +369,18 @@ EXPORT_SYMBOL(blk_put_queue);
 void blk_drain_queue(struct request_queue *q)
 {
 	while (true) {
-		bool drain = false;
-		int i;
+		int nr_rqs;
 
 		spin_lock_irq(q->queue_lock);
 
 		elv_drain_elevator(q);
 
 		__blk_run_queue(q);
-
-		drain |= q->rq.elvpriv;
-
-		/*
-		 * Unfortunately, requests are queued at and tracked from
-		 * multiple places and there's no single counter which can
-		 * be drained.  Check all the queues and counters.
-		 */
-		if (drain_all) {
-			drain |= !list_empty(&q->queue_head);
-			for (i = 0; i < 2; i++) {
-				drain |= q->rq.count[i];
-				drain |= q->in_flight[i];
-				drain |= !list_empty(&q->flush_queue[i]);
-			}
-		}
+		nr_rqs = q->rq.elvpriv;
 
 		spin_unlock_irq(q->queue_lock);
 
-		if (!drain)
+		if (!nr_rqs)
 			break;
 		msleep(10);
 	}
