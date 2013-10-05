@@ -1162,12 +1162,6 @@ static long nvhdcp_dev_ioctl(struct file *filp,
 		kfree(pkt);
 		return e;
 
-	case TEGRAIO_HDCP_STATUE:
-		status = arg;
-		switch_set_state(&nvhdcp->hdcp_switch, status);
-		printk("[HDCP] HDCP_STATUS:%d\r\n", status);
-		return true;
-
 	case TEGRAIO_NVHDCP_RENEGOTIATE:
 		e = tegra_nvhdcp_renegotiate(nvhdcp);
 		break;
@@ -1261,8 +1255,6 @@ struct tegra_nvhdcp *tegra_nvhdcp_create(struct tegra_dc_hdmi_data *hdmi,
 		goto free_workqueue;
 
 	nvhdcp_vdbg("%s(): created misc device %s\n", __func__, nvhdcp->name);
-	nvhdcp->hdcp_switch.name = "hdcp";
-	e = switch_dev_register(&nvhdcp->hdcp_switch);
 
 	return nvhdcp;
 free_workqueue:
