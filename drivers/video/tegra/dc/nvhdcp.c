@@ -27,7 +27,6 @@
 #include <linux/gpio.h>
 #include "../../../../arch/arm/mach-tegra/lge/x3/include/mach-tegra/gpio-names.h"
 
-
 #include <mach/dc.h>
 #include <mach/kfuse.h>
 
@@ -81,6 +80,7 @@ struct tegra_nvhdcp {
 	struct tegra_dc_hdmi_data	*hdmi;
 	struct workqueue_struct		*downstream_wq;
 	struct mutex			lock;
+	struct mutex			state_lock;
 	struct miscdevice		miscdev;
 	char				name[12];
 	unsigned			id;
@@ -102,6 +102,7 @@ struct tegra_nvhdcp {
 	u32				num_bksv_list;
 	u64				bksv_list[TEGRA_NVHDCP_MAX_DEVS];
 	int				fail_count;
+	struct switch_dev   hdcp_switch;
 };
 
 static inline bool nvhdcp_is_plugged(struct tegra_nvhdcp *nvhdcp)
@@ -122,7 +123,6 @@ static int nvhdcp_i2c_read(struct tegra_nvhdcp *nvhdcp, u8 reg,
 {
 	int status;
 	int retries = 15;
-	int hdmi_hpd_status=1;
 	struct i2c_msg msg[] = {
 		{
 			.addr = 0x74 >> 1, /* primary link */
@@ -143,13 +143,6 @@ static int nvhdcp_i2c_read(struct tegra_nvhdcp *nvhdcp, u8 reg,
 			nvhdcp_err("disconnect during i2c xfer\n");
 			return -EIO;
 		}
-		//                                                          
-		hdmi_hpd_status = gpio_get_value(TEGRA_GPIO_PN7);
-		if (hdmi_hpd_status != 1) {
-			printk("nvhdcp: hdmi hpd is already low. (hpd=%d) disconnect during i2c read xfer.\n", hdmi_hpd_status);
-			return -EIO;
-		}
-		//                                                          
 		status = i2c_transfer(nvhdcp->client->adapter,
 			msg, ARRAY_SIZE(msg));
 		if ((status < 0) && (retries > 1))
@@ -169,7 +162,6 @@ static int nvhdcp_i2c_write(struct tegra_nvhdcp *nvhdcp, u8 reg,
 {
 	int status;
 	u8 buf[len + 1];
-	int hdmi_hpd_status=1;
 	struct i2c_msg msg[] = {
 		{
 			.addr = 0x74 >> 1, /* primary link */
@@ -188,14 +180,6 @@ static int nvhdcp_i2c_write(struct tegra_nvhdcp *nvhdcp, u8 reg,
 			nvhdcp_err("disconnect during i2c xfer\n");
 			return -EIO;
 		}
-		//                                                          
-		hdmi_hpd_status = gpio_get_value(TEGRA_GPIO_PN7);
-		if (hdmi_hpd_status != 1) {
-			printk("nvhdcp: hdmi hpd is already low. (hpd=%d) disconnect during i2c read xfer.\n", hdmi_hpd_status);
-			return -EIO;
-		}
-		//                                                          
-
 		status = i2c_transfer(nvhdcp->client->adapter,
 			msg, ARRAY_SIZE(msg));
 		if ((status < 0) && (retries > 1))
@@ -223,7 +207,7 @@ static inline int nvhdcp_i2c_write8(struct tegra_nvhdcp *nvhdcp, u8 reg, u8 val)
 static inline int nvhdcp_i2c_read16(struct tegra_nvhdcp *nvhdcp,
 					u8 reg, u16 *val)
 {
-	u8 buf[2];
+	u8 buf[2] = {};
 	int e;
 
 	e = nvhdcp_i2c_read(nvhdcp, reg, sizeof buf, buf);
@@ -238,7 +222,7 @@ static inline int nvhdcp_i2c_read16(struct tegra_nvhdcp *nvhdcp,
 
 static int nvhdcp_i2c_read40(struct tegra_nvhdcp *nvhdcp, u8 reg, u64 *val)
 {
-	u8 buf[5];
+	u8 buf[5] = {};
 	int e, i;
 	u64 n;
 
@@ -779,7 +763,7 @@ static int verify_link(struct tegra_nvhdcp *nvhdcp, bool wait_ri)
 static int get_repeater_info(struct tegra_nvhdcp *nvhdcp)
 {
 	int e, retries;
-	u8 b_caps;
+	u8 b_caps = 0;
 	u16 b_status;
 
 	nvhdcp_vdbg("repeater found:fetching repeater info\n");
@@ -849,7 +833,7 @@ static void nvhdcp_downstream_worker(struct work_struct *work)
 		container_of(to_delayed_work(work), struct tegra_nvhdcp, work);
 	struct tegra_dc_hdmi_data *hdmi = nvhdcp->hdmi;
 	int e;
-	u8 b_caps;
+	u8 b_caps = 0;
 	u32 tmp;
 	u32 res;
 
@@ -860,9 +844,7 @@ static void nvhdcp_downstream_worker(struct work_struct *work)
 		nvhdcp_err("nvhdcp failure - giving up\n");
 		goto err;
 	}
-	mutex_lock(&nvhdcp->lock);
 	nvhdcp->state = STATE_UNAUTHENTICATED;
-	mutex_unlock(&nvhdcp->lock);
 
 	/* check plug state to terminate early in case flush_workqueue() */
 	if (!nvhdcp_is_plugged(nvhdcp)) {
@@ -1002,7 +984,9 @@ static void nvhdcp_downstream_worker(struct work_struct *work)
 
 	nvhdcp_vdbg("CRYPT enabled\n");
 
+	mutex_lock(&nvhdcp->state_lock);
 	nvhdcp->state = STATE_LINK_VERIFY;
+	mutex_unlock(&nvhdcp->state_lock);
 	nvhdcp_info("link verified!\n");
 
 	while (1) {
@@ -1029,30 +1013,38 @@ failure:
 	if(nvhdcp->fail_count > 5) {
 	        nvhdcp_err("nvhdcp failure - too many failures, giving up!\n");
 	} else {
-		nvhdcp_err("nvhdcp failure - renegotiating in 1 second\n");
-		if (!nvhdcp_is_plugged(nvhdcp))
+		if (!nvhdcp_is_plugged(nvhdcp)) {
+			nvhdcp_err("nvhdcp failure\n");
 			goto lost_hdmi;
+		}
+		nvhdcp_err("nvhdcp failure - renegotiating in 1 second\n");
 		queue_delayed_work(nvhdcp->downstream_wq, &nvhdcp->work,
 						msecs_to_jiffies(1000));
 	}
 
 lost_hdmi:
+	mutex_lock(&nvhdcp->state_lock);
 	nvhdcp->state = STATE_UNAUTHENTICATED;
+	mutex_unlock(&nvhdcp->state_lock);
 	hdcp_ctrl_run(hdmi, 0);
 
 err:
 	mutex_unlock(&nvhdcp->lock);
 	return;
 disable:
+	mutex_lock(&nvhdcp->state_lock);
 	nvhdcp->state = STATE_OFF;
 	nvhdcp_set_plugged(nvhdcp, false);
+	mutex_unlock(&nvhdcp->state_lock);
 	mutex_unlock(&nvhdcp->lock);
 	return;
 }
 
 static int tegra_nvhdcp_on(struct tegra_nvhdcp *nvhdcp)
 {
+	mutex_lock(&nvhdcp->state_lock);
 	nvhdcp->state = STATE_UNAUTHENTICATED;
+	mutex_unlock(&nvhdcp->state_lock);
 	if (nvhdcp_is_plugged(nvhdcp)) {
 		nvhdcp->fail_count = 0;
 		queue_delayed_work(nvhdcp->downstream_wq, &nvhdcp->work,
@@ -1063,10 +1055,10 @@ static int tegra_nvhdcp_on(struct tegra_nvhdcp *nvhdcp)
 
 static int tegra_nvhdcp_off(struct tegra_nvhdcp *nvhdcp)
 {
-	mutex_lock(&nvhdcp->lock);
+	mutex_lock(&nvhdcp->state_lock);
 	nvhdcp->state = STATE_OFF;
 	nvhdcp_set_plugged(nvhdcp, false);
-	mutex_unlock(&nvhdcp->lock);
+	mutex_unlock(&nvhdcp->state_lock);
 	wake_up_interruptible(&wq_worker);
 	flush_workqueue(nvhdcp->downstream_wq);
 	return 0;
@@ -1102,9 +1094,9 @@ int tegra_nvhdcp_set_policy(struct tegra_nvhdcp *nvhdcp, int pol)
 
 static int tegra_nvhdcp_renegotiate(struct tegra_nvhdcp *nvhdcp)
 {
-	mutex_lock(&nvhdcp->lock);
+	mutex_lock(&nvhdcp->state_lock);
 	nvhdcp->state = STATE_RENEGOTIATE;
-	mutex_unlock(&nvhdcp->lock);
+	mutex_unlock(&nvhdcp->state_lock);
 	tegra_nvhdcp_on(nvhdcp);
 	return 0;
 }
@@ -1127,7 +1119,7 @@ static long nvhdcp_dev_ioctl(struct file *filp,
 	struct tegra_nvhdcp *nvhdcp = filp->private_data;
 	struct tegra_nvhdcp_packet *pkt;
 	int e = -ENOTTY;
-
+	int status;
 	switch (cmd) {
 	case TEGRAIO_NVHDCP_ON:
 		return tegra_nvhdcp_on(nvhdcp);
@@ -1169,6 +1161,12 @@ static long nvhdcp_dev_ioctl(struct file *filp,
 		}
 		kfree(pkt);
 		return e;
+
+	case TEGRAIO_HDCP_STATUE:
+		status = arg;
+		switch_set_state(&nvhdcp->hdcp_switch, status);
+		printk("[HDCP] HDCP_STATUS:%d\r\n", status);
+		return true;
 
 	case TEGRAIO_NVHDCP_RENEGOTIATE:
 		e = tegra_nvhdcp_renegotiate(nvhdcp);
@@ -1223,6 +1221,7 @@ struct tegra_nvhdcp *tegra_nvhdcp_create(struct tegra_dc_hdmi_data *hdmi,
 	snprintf(nvhdcp->name, sizeof(nvhdcp->name), "nvhdcp%u", id);
 	nvhdcp->hdmi = hdmi;
 	mutex_init(&nvhdcp->lock);
+	mutex_init(&nvhdcp->state_lock);
 
 	strlcpy(nvhdcp->info.type, nvhdcp->name, sizeof(nvhdcp->info.type));
 	nvhdcp->bus = bus;
@@ -1246,7 +1245,9 @@ struct tegra_nvhdcp *tegra_nvhdcp_create(struct tegra_dc_hdmi_data *hdmi,
 		goto free_nvhdcp;
 	}
 
+	mutex_lock(&nvhdcp->state_lock);
 	nvhdcp->state = STATE_UNAUTHENTICATED;
+	mutex_unlock(&nvhdcp->state_lock);
 
 	nvhdcp->downstream_wq = create_singlethread_workqueue(nvhdcp->name);
 	INIT_DELAYED_WORK(&nvhdcp->work, nvhdcp_downstream_worker);
@@ -1260,10 +1261,13 @@ struct tegra_nvhdcp *tegra_nvhdcp_create(struct tegra_dc_hdmi_data *hdmi,
 		goto free_workqueue;
 
 	nvhdcp_vdbg("%s(): created misc device %s\n", __func__, nvhdcp->name);
+	nvhdcp->hdcp_switch.name = "hdcp";
+	e = switch_dev_register(&nvhdcp->hdcp_switch);
 
 	return nvhdcp;
 free_workqueue:
-	destroy_workqueue(nvhdcp->downstream_wq);
+	if(nvhdcp->downstream_wq)
+		destroy_workqueue(nvhdcp->downstream_wq);
 	i2c_release_client(nvhdcp->client);
 free_nvhdcp:
 	kfree(nvhdcp);
