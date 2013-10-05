@@ -105,6 +105,8 @@ unsigned int sysctl_sched_cfs_bandwidth_slice = 5000UL;
 
 static const struct sched_class fair_sched_class;
 
+static unsigned long __read_mostly max_load_balance_interval = HZ/10;
+
 /**************************************************************
  * CFS operations on generic schedulable entities:
  */
@@ -3437,6 +3439,11 @@ static void update_group_power(struct sched_domain *sd, int cpu)
 	struct sched_domain *child = sd->child;
 	struct sched_group *group, *sdg = sd->groups;
 	unsigned long power;
+	unsigned long interval;
+
+	interval = msecs_to_jiffies(sd->balance_interval);
+	interval = clamp(interval, 1UL, max_load_balance_interval);
+	sdg->sgp->next_update = jiffies + interval; 
 
 	if (!child) {
 		update_cpu_power(sd, cpu);
@@ -3544,13 +3551,16 @@ static inline void update_sg_lb_stats(struct sched_domain *sd,
 	 * domains. In the newly idle case, we will allow all the cpu's
 	 * to do the newly idle load balance.
 	 */
-	if (idle != CPU_NEWLY_IDLE && local_group) {
+	if (local_group) {
+	if (idle != CPU_NEWLY_IDLE) {
 		if (balance_cpu != this_cpu) {
-			*balance = 0;
-			return;
+		*balance = 0;
+		return;
 		}
 		update_group_power(sd, this_cpu);
-	}
+		} else if (time_after_eq(jiffies, group->sgp->next_update))
+		update_group_power(sd, this_cpu);
+	} 
 
 	/* Adjust by relative CPU power of the group */
 	sgs->avg_load = (sgs->group_load*SCHED_POWER_SCALE) / group->sgp->power;
@@ -4637,8 +4647,6 @@ void select_nohz_load_balancer(int stop_tick)
 #endif
 
 static DEFINE_SPINLOCK(balancing);
-
-static unsigned long __read_mostly max_load_balance_interval = HZ/10;
 
 /*
  * Scale the max load_balance interval with the number of CPUs in the system.
