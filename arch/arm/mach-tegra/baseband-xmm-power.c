@@ -115,6 +115,7 @@ static struct work_struct init1_work;
 static struct work_struct init2_work;
 static struct work_struct L2_resume_work;
 static struct baseband_power_platform_data *baseband_power_driver_data;
+static int waiting_falling_flag = 0;
 static bool register_hsic_device;
 static struct wake_lock wakelock;
 static struct usb_device *usbdev;
@@ -342,7 +343,8 @@ static int baseband_xmm_power_off(struct platform_device *device)
     spin_lock_irqsave(&xmm_lock, flags);
     wakeup_pending = false;
 	system_suspending = false;
-   	spin_unlock_irqrestore(&xmm_lock, flags);		
+   	spin_unlock_irqrestore(&xmm_lock, flags);
+	register_hsic_device = true; //start reg process again for xmm on 		
 
 	pr_debug("%s }\n", __func__);
 	return 0;
@@ -363,7 +365,7 @@ static ssize_t baseband_xmm_onoff(struct device *dev,
 	/* check input */
 	if (buf == NULL) {
 		pr_err("%s: buf NULL\n", __func__);
-		mutex_unlock(&xmm_onoff_mutex);
+		mutex_unlock(&xmm_onoff_lock);
 		return -EINVAL;
 	}
 	pr_debug("%s: count=%d\n", __func__, count);
@@ -372,13 +374,13 @@ static ssize_t baseband_xmm_onoff(struct device *dev,
 	size = sscanf(buf, "%d", &pwr);
 	if (size != 1) {
 		pr_err("%s: size=%d -EINVAL\n", __func__, size);
-		mutex_unlock(&xmm_onoff_mutex);
+		mutex_unlock(&xmm_onoff_lock);
 		return -EINVAL;
 	}
 
 	if (power_onoff == pwr) {
 		pr_err("%s: Ignored, due to same CP power state(%d)\n", __func__, power_onoff);
-		mutex_unlock(&xmm_onoff_mutex);
+		mutex_unlock(&xmm_onoff_lock);
 		return -EINVAL;
 	}
 	power_onoff = pwr;
@@ -390,7 +392,7 @@ static ssize_t baseband_xmm_onoff(struct device *dev,
 	else if (power_onoff == 1)
 		baseband_xmm_power_on(device);
 
-	mutex_unlock(&xmm_onoff_mutex);
+	mutex_unlock(&xmm_onoff_lock);
 	return count;
 }
 
@@ -499,7 +501,7 @@ void baseband_xmm_set_power_status(unsigned int status)
 		
 	case BBXMM_PS_L3:
 		if (baseband_xmm_powerstate == BBXMM_PS_L2TOL0) {
-				if (!data->modem.xmm.ipc_ap_wake) {
+				if (!gpio_get_value(data->modem.xmm.ipc_ap_wake)) {
 						spin_lock_irqsave(&xmm_lock, flags);
 						wakeup_pending = true;
 						spin_unlock_irqrestore(&xmm_lock, flags);
@@ -515,8 +517,11 @@ void baseband_xmm_set_power_status(unsigned int status)
 			pr_debug("%s: releasing wakelock before L3\n", __func__);
 			wake_unlock(&wakelock);
 		}
-		gpio_set_value(data->modem.xmm.ipc_hsic_active, 0);
-		pr_debug("GPIO [W]: Host_active -> 0 \n"); 
+		 if (wakeup_pending == false) {
+			gpio_set_value(data->modem.xmm.ipc_hsic_active, 0);
+			waiting_falling_flag = 0;
+			pr_debug("gpio host active low->\n");
+		} 
 		break;
 	case BBXMM_PS_L2TOL0:
 		spin_lock_irqsave(&xmm_lock, flags);
@@ -528,14 +533,19 @@ void baseband_xmm_set_power_status(unsigned int status)
 			baseband_xmm_powerstate = status;
 			pr_debug("BB XMM POWER STATE = %d\n", status);
 			baseband_xmm_power_L2_resume();
-		}
-		baseband_xmm_powerstate = status;
-		break;
+		} else
+			goto exit_without_state_change;
 	default:
-		baseband_xmm_powerstate = status;
 		break;
 	}
-	pr_debug("BB XMM POWER STATE = %s(%d)\n", pwrstate_cmt[status], status);
+	baseband_xmm_powerstate = status;
+	pr_debug("BB XMM POWER STATE = %d\n", status);
+	return;
+
+	exit_without_state_change:
+	pr_debug("BB XMM POWER STATE = %d (not change to %d)\n",
+		baseband_xmm_powerstate, status);
+	return;
 }
 EXPORT_SYMBOL_GPL(baseband_xmm_set_power_status);
 
@@ -552,12 +562,17 @@ irqreturn_t baseband_xmm_power_ipc_ap_wake_irq(int irq, void *dev_id)
 	} else if (ipc_ap_wake_state == IPC_AP_WAKE_IRQ_READY) {
 		if (!value) {
 			pr_debug("%s - IPC_AP_WAKE_INIT1" " - got falling edge\n", __func__);
+			if (waiting_falling_flag == 0) {
+			pr_debug("%s return because irq must get the rising event at first\n", __func__);
+			return IRQ_HANDLED;
+			}
 			/* go to IPC_AP_WAKE_INIT1 state */
 			ipc_ap_wake_state = IPC_AP_WAKE_INIT1;
 			/* queue work */
 			queue_work(workqueue, &init1_work);
 		} else {
 			pr_debug("%s - IPC_AP_WAKE_INIT1" " - wait for falling edge\n",	__func__);
+			waiting_falling_flag = 1;
 		}
 	} else if (ipc_ap_wake_state == IPC_AP_WAKE_INIT1) {
 		if (!value) {
