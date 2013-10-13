@@ -40,13 +40,8 @@
 
 #define INITIAL_STATE		TEGRA_HP_DISABLED
 #define UP2G0_DELAY_MS		70
-#define UP2Gn_DELAY_MS		100
-//                    
-#ifdef CONFIG_MACH_X3
-#define DOWN_DELAY_MS		1000
-#else
+#define UP2Gn_DELAY_MS		100          
 #define DOWN_DELAY_MS		2000
-#endif
 
 static struct mutex *tegra3_cpu_lock;
 
@@ -73,13 +68,7 @@ module_param(idle_bottom_freq, uint, 0644);
 static int mp_overhead = 10;
 module_param(mp_overhead, int, 0644);
 
-//                    
-#ifdef CONFIG_MACH_X3
-static int balance_level = 75;
-#else
 static int balance_level = 60;
-#endif
-
 module_param(balance_level, int, 0644);
 
 static struct clk *cpu_clk;
@@ -210,8 +199,7 @@ static unsigned int rt_profile_sel;
 static unsigned int rt_profile_default[] = {
 /*      1,  2,  3,  4 - on-line cpus target */
 /*                                                                              */
-	10,  11, 12, UINT_MAX
-//	5,  9, 10, UINT_MAX
+	5,  9, 10, UINT_MAX
 };
 
 static unsigned int rt_profile_1[] = {
@@ -295,7 +283,7 @@ static noinline int tegra_cpu_speed_balance(void)
 
 //                                                               
 #if defined(CONFIG_MACH_LGE)
-static void tegra_check_limeted_max_cores(void)
+static void tegra_check_limited_max_cores(void)
 {
 	if(is_lp_cluster())
 	{
@@ -351,7 +339,7 @@ static void tegra_auto_hotplug_work_func(struct work_struct *work)
 	
 	//                                                               
 #if defined(CONFIG_MACH_LGE)	
-	tegra_check_limeted_max_cores();
+	tegra_check_limited_max_cores();
 #endif	
 	//                                                               
 
