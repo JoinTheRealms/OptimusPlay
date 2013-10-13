@@ -71,6 +71,11 @@ module_param(mp_overhead, int, 0644);
 static int balance_level = 60;
 module_param(balance_level, int, 0644);
 
+static int up_time = 100;
+module_param(up_time, int, 0644);
+static int down_time = 200;
+module_param(down_time, int, 0644);
+
 static struct clk *cpu_clk;
 static struct clk *cpu_g_clk;
 static struct clk *cpu_lp_clk;
