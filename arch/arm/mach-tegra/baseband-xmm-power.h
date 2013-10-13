@@ -119,5 +119,6 @@ irqreturn_t baseband_xmm_power_ipc_ap_wake_irq(int irq, void *dev_id);
 
 void baseband_xmm_power_switch(bool power_on); //To_Ril-recovery Nvidia_Patch_20111226
 void baseband_xmm_set_power_status(unsigned int status);
+extern struct xmm_power_data xmm_power_drv_data;
 
 #endif	//__BASEBAND_XMM_POWER_H__
