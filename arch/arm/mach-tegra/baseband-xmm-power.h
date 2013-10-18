@@ -33,7 +33,7 @@
 #define MODEM_ENUM_TIMEOUT_500MS 16 /* 8 sec */
 #define MODEM_ENUM_TIMEOUT_200MS 25 /* 5 sec */
 #define SHORT_AUTOSUSPEND_DELAY 100
-#define DEFAULT_AUTOSUSPEND_DELAY 3000
+#define DEFAULT_AUTOSUSPEND_DELAY 2000
 
 /* shared between baseband-xmm-* modules so they can agree on same
  * modem configuration
